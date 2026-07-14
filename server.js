@@ -1,4 +1,5 @@
 // 티카투카 온라인 - 팬메이드 서버 (랜덤 매칭 / 초대코드 / AI 대전)
+// v2: 아이템 카드(방어/저격/섞기), 시작 주사위 3택1 + 포켓, 무조건 리롤, 연승 기록
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -10,8 +11,9 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const rollDie = () => 1 + Math.floor(Math.random() * 6);
+const ITEM_TYPES = ['defense', 'snipe', 'shuffle'];
 
-// 줄 점수: 합계 + 같은 눈 보너스 (2개 = 3배, 3개 = 5배)
+// 줄 점수: 합계 + 같은 눈 보너스 (더블 = 3배, 트리플 = 5배)
 function scoreLine(dice) {
   const counts = {};
   for (const d of dice) counts[d.v] = (counts[d.v] || 0) + 1;
@@ -24,49 +26,85 @@ function scoreLine(dice) {
 }
 
 class Game {
-  // sendFn(playerIdx, msgObj) — 봇 자리는 무시됨
   constructor(sendFn, names, botIdx = -1) {
     this.sendFn = sendFn;
     this.names = names;
     this.botIdx = botIdx;
-    this.rematchVotes = [false, false];
+    this.botStreak = 0;
+    this.hooks = null;
     this.reset();
   }
   reset() {
-    this.boards = [[[], [], []], [[], [], []]]; // [player][line] = [{v, shield}]
+    this.boards = [[[], [], []], [[], [], []]];
     this.rerolls = [1, 1];
     this.turn = Math.floor(Math.random() * 2);
-    this.firstMove = true; // 규칙 9: 최초 시작 주사위는 실드, 자기 보드 전용
-    this.pending = null;   // {v, shield, ownOnly, bonus, offer:{old,nu}|null}
+    this.firstMove = true;   // 게임 최초 배치 주사위는 실드(내 보드 전용)
+    this.pending = null;
     this.over = false;
     this.result = null;
     this.rematchVotes = [false, false];
+    this.phase = 'cards';    // cards → play
+    this.items = [null, null];         // {type, used}
+    this.pockets = [[], []];           // 시작 3택1에서 남은 주사위 2개
+    this.firstDone = [false, false];   // 시작 선택 완료 여부
+    this.defendedEvt = false;
   }
   start() {
-    this.beginTurn();
+    this.broadcast(null);
+    if (this.botIdx >= 0 && !this.items[this.botIdx]) {
+      setTimeout(() => this.pickItem(this.botIdx, ITEM_TYPES[Math.floor(Math.random() * 3)]), 700);
+    }
   }
   boardFull(i) { return this.boards[i].every(l => l.length >= 3); }
   scores() { return this.boards.map(b => b.map(scoreLine)); }
 
+  // ---------- 아이템 카드 선택 ----------
+  pickItem(idx, type) {
+    if (this.over || this.phase !== 'cards') return { err: '지금은 카드를 고를 수 없습니다.' };
+    if (this.items[idx]) return { err: '이미 선택했습니다.' };
+    if (!ITEM_TYPES.includes(type)) return { err: '잘못된 카드입니다.' };
+    this.items[idx] = { type, used: false };
+    if (this.items[0] && this.items[1]) {
+      this.phase = 'play';
+      this.beginTurn({ kind: 'cards_done' });
+    } else {
+      this.broadcast(null);
+    }
+    return {};
+  }
+
   beginTurn(evt) {
     if (this.over) return;
     if (this.boardFull(0) && this.boardFull(1)) return this.finish(evt);
-    if (this.boardFull(this.turn)) this.turn = 1 - this.turn; // 규칙 19: 꽉 찬 보드는 턴 스킵
-    this.pending = {
-      v: rollDie(),
-      shield: this.firstMove,
-      ownOnly: this.firstMove,
-      bonus: false,
-      offer: null
-    };
-    this.firstMove = false;
-    this.broadcast('state', evt);
+    if (this.boardFull(this.turn)) this.turn = 1 - this.turn;
+    if (!this.firstDone[this.turn]) {
+      // 첫 턴: 주사위 3개를 굴려 하나 선택, 나머지는 포켓으로
+      this.pending = { firstPick: true, choices: [rollDie(), rollDie(), rollDie()] };
+    } else {
+      this.pending = { v: rollDie(), shield: false, ownOnly: false, bonus: false, swapped: false };
+    }
+    this.broadcast(evt);
     this.maybeBot();
   }
 
+  pickStart(idx, cIdx) {
+    if (this.over || this.turn !== idx || !this.pending || !this.pending.firstPick)
+      return { err: '지금은 선택할 수 없습니다.' };
+    if (!(cIdx >= 0 && cIdx < 3)) return { err: '잘못된 선택입니다.' };
+    const ch = this.pending.choices;
+    const v = ch[cIdx];
+    this.pockets[idx] = ch.filter((_, i) => i !== cIdx).map(x => x);
+    this.firstDone[idx] = true;
+    const shield = this.firstMove, ownOnly = this.firstMove;
+    this.firstMove = false;
+    this.pending = { v, shield, ownOnly, bonus: false, swapped: false };
+    this.broadcast({ kind: 'startpick', by: idx });
+    this.maybeBot();
+    return {};
+  }
+
   legalMoves(idx) {
-    // [{board:'own'|'opp', line}]
-    if (!this.pending || this.turn !== idx) return [];
+    if (!this.pending || this.pending.firstPick || this.turn !== idx || this.over) return [];
     const p = this.pending;
     const moves = [];
     for (let l = 0; l < 3; l++) {
@@ -77,31 +115,105 @@ class Game {
     return moves;
   }
 
+  // ---------- 포켓 교체 (턴당 1회) ----------
+  swap(idx, pi) {
+    if (this.over || this.turn !== idx || !this.pending || this.pending.firstPick)
+      return { err: '지금은 교체할 수 없습니다.' };
+    const p = this.pending;
+    if (p.shield || p.bonus) return { err: '실드/보너스 주사위는 교체할 수 없습니다.' };
+    if (p.swapped) return { err: '이번 턴에 이미 교체했습니다.' };
+    if (this.pockets[idx][pi] === undefined) return { err: '포켓이 비어 있습니다.' };
+    const t = this.pockets[idx][pi];
+    this.pockets[idx][pi] = p.v;
+    p.v = t;
+    p.swapped = true;
+    this.broadcast({ kind: 'swap', by: idx });
+    this.maybeBot();
+    return {};
+  }
+
+  // ---------- 리롤 (무조건 교체, 게임당 1회) ----------
+  reroll(idx) {
+    if (this.over || this.turn !== idx || !this.pending || this.pending.firstPick)
+      return { err: '지금은 리롤할 수 없습니다.' };
+    if (this.pending.bonus) return { err: '보너스 주사위는 리롤할 수 없습니다.' };
+    if (this.rerolls[idx] <= 0) return { err: '리롤권을 이미 사용했습니다.' };
+    this.rerolls[idx]--;
+    this.pending.v = rollDie();
+    this.broadcast({ kind: 'reroll', by: idx });
+    this.maybeBot();
+    return {};
+  }
+
+  // ---------- 저격: 상대 주사위 하나 제거 (방어에 막힐 수 있음) ----------
+  useSnipe(idx, line, dieIdx) {
+    const it = this.items[idx];
+    if (this.over || !it || it.type !== 'snipe' || it.used) return { err: '저격 카드를 사용할 수 없습니다.' };
+    if (this.turn !== idx || !this.pending || this.pending.firstPick) return { err: '내 턴에만 사용할 수 있습니다.' };
+    const tgtLine = this.boards[1 - idx][line];
+    if (!tgtLine || !tgtLine[dieIdx]) return { err: '대상이 없습니다.' };
+    it.used = true;
+    const def = this.items[1 - idx];
+    if (def && def.type === 'defense' && !def.used) {
+      def.used = true;
+      this.broadcast({ kind: 'snipe_blocked', by: idx, line, dieIdx });
+    } else {
+      const tgt = tgtLine[dieIdx];
+      this.boards[1 - idx][line] = tgtLine.filter((_, i) => i !== dieIdx);
+      this.broadcast({ kind: 'snipe', by: idx, line, dieIdx, dieV: tgt.v, shield: tgt.shield });
+    }
+    this.maybeBot();
+    return {};
+  }
+
+  // ---------- 섞기: 내 3개 줄 위치를 무작위 재배치 ----------
+  useShuffle(idx) {
+    const it = this.items[idx];
+    if (this.over || !it || it.type !== 'shuffle' || it.used) return { err: '섞기 카드를 사용할 수 없습니다.' };
+    if (this.turn !== idx || !this.pending || this.pending.firstPick) return { err: '내 턴에만 사용할 수 있습니다.' };
+    const b = this.boards[idx];
+    let perm;
+    do {
+      perm = [0, 1, 2].sort(() => Math.random() - .5);
+    } while (perm[0] === 0 && perm[1] === 1 && perm[2] === 2);
+    this.boards[idx] = [b[perm[0]], b[perm[1]], b[perm[2]]];
+    it.used = true;
+    this.broadcast({ kind: 'shuffle', by: idx });
+    this.maybeBot();
+    return {};
+  }
+
   place(idx, boardSel, line) {
     if (this.over || this.turn !== idx || !this.pending) return { err: '지금은 놓을 수 없습니다.' };
     const p = this.pending;
-    if (p.offer) return { err: '리롤 결과를 먼저 선택하세요.' };
+    if (p.firstPick) return { err: '시작 주사위를 먼저 선택하세요.' };
     if (line < 0 || line > 2) return { err: '잘못된 줄입니다.' };
     if (boardSel !== 'own' && !p.shield) return { err: '일반 주사위는 내 보드에만 놓을 수 있습니다.' };
     if (boardSel !== 'own' && p.ownOnly) return { err: '시작 실드 주사위는 내 보드에만 놓을 수 있습니다.' };
     const targetIdx = boardSel === 'own' ? idx : 1 - idx;
     if (this.boards[targetIdx][line].length >= 3) return { err: '그 줄은 가득 찼습니다.' };
 
-    // 알까기: 성공 시 상대의 같은 눈 일반 주사위와 함께 알깐 내 주사위도 소멸 (배치되지 않음)
+    // 알까기 판정: 성공 시 상대 주사위와 알깐 내 주사위 모두 소멸 + 실드 보너스
+    // 상대가 방어 카드를 보유하면 자동 발동되어 무효화(일반 배치로 전환, 보너스 없음)
     if (!p.shield && boardSel === 'own') {
       const oppLine = this.boards[1 - idx][line];
       const hit = oppLine.filter(d => d.v === p.v && !d.shield);
       if (hit.length) {
-        this.boards[1 - idx][line] = oppLine.filter(d => !(d.v === p.v && !d.shield));
-        // 보너스: 실드 주사위를 굴려 아무 보드에나 배치
-        this.pending = { v: rollDie(), shield: true, ownOnly: false, bonus: true, offer: null };
-        this.broadcast('state', { kind: 'knock', by: idx, line, removed: hit.length, dieV: p.v });
-        this.maybeBot();
-        return {};
+        const def = this.items[1 - idx];
+        if (def && def.type === 'defense' && !def.used) {
+          def.used = true;
+          this.defendedEvt = true; // 아래 일반 배치로 계속
+        } else {
+          this.boards[1 - idx][line] = oppLine.filter(d => !(d.v === p.v && !d.shield));
+          this.pending = { v: rollDie(), shield: true, ownOnly: false, bonus: true, swapped: false };
+          this.broadcast({ kind: 'knock', by: idx, line, removed: hit.length, dieV: p.v });
+          this.maybeBot();
+          return {};
+        }
       }
     }
 
-    // 원작 재현: 같은 눈이 이미 있으면(사이에 다른 주사위가 있어도) 그 옆으로 끼어들며 그룹핑
+    // 같은 눈 그룹핑 삽입
     const lineArr = this.boards[targetIdx][line];
     let insertAt = lineArr.length, regrouped = false;
     const lastSame = lineArr.map(d => d.v).lastIndexOf(p.v);
@@ -109,30 +221,11 @@ class Game {
     lineArr.splice(insertAt, 0, { v: p.v, shield: p.shield });
 
     const dieV = p.v, shield = p.shield;
+    const defended = this.defendedEvt;
+    this.defendedEvt = false;
     this.pending = null;
     this.turn = 1 - this.turn;
-    this.beginTurn({ kind: 'placed', by: idx, board: targetIdx, line, dieV, shield, insertAt, regrouped });
-    return {};
-  }
-
-  reroll(idx) {
-    if (this.over || this.turn !== idx || !this.pending) return { err: '지금은 리롤할 수 없습니다.' };
-    if (this.pending.offer) return { err: '이미 리롤했습니다.' };
-    if (this.rerolls[idx] <= 0) return { err: '리롤권을 이미 사용했습니다.' };
-    this.rerolls[idx]--;
-    this.pending.offer = { old: this.pending.v, nu: rollDie() };
-    this.broadcast('state', { kind: 'reroll', by: idx });
-    this.maybeBot();
-    return {};
-  }
-
-  choose(idx, pick) {
-    if (this.over || this.turn !== idx || !this.pending || !this.pending.offer)
-      return { err: '선택할 리롤이 없습니다.' };
-    this.pending.v = pick === 'new' ? this.pending.offer.nu : this.pending.offer.old;
-    this.pending.offer = null;
-    this.broadcast('state', { kind: 'chose', by: idx });
-    this.maybeBot();
+    this.beginTurn({ kind: 'placed', by: idx, board: targetIdx, line, dieV, shield, insertAt, regrouped, defended });
     return {};
   }
 
@@ -151,16 +244,20 @@ class Game {
     if (wins[0] >= 2) winner = 0;
     else if (wins[1] >= 2) winner = 1;
     else {
-      // 규칙 5: 줄 승수가 같으면 총점으로
       const t0 = sc[0].reduce((a, b) => a + b, 0);
       const t1 = sc[1].reduce((a, b) => a + b, 0);
       winner = t0 > t1 ? 0 : t1 > t0 ? 1 : -1;
     }
-    this.result = { winner, wins, lineResults, totals: [sc[0].reduce((a,b)=>a+b,0), sc[1].reduce((a,b)=>a+b,0)] };
-    this.broadcast('state', Object.assign({}, evt, { kind: 'game_over' }));
+    const streaks = this.hooks && this.hooks.onFinish ? this.hooks.onFinish(winner) : [0, 0];
+    this.result = {
+      winner, wins, lineResults, streaks,
+      totals: [sc[0].reduce((a,b)=>a+b,0), sc[1].reduce((a,b)=>a+b,0)]
+    };
+    this.broadcast(Object.assign({}, evt, { kind: 'game_over' }));
   }
 
   stateFor(i) {
+    const oppIt = this.items[1 - i];
     return {
       type: 'state',
       me: i,
@@ -169,13 +266,19 @@ class Game {
       scores: this.scores(),
       rerolls: this.rerolls,
       turn: this.turn,
+      phase: this.phase,
+      myItem: this.items[i],
+      oppPicked: !!oppIt,
+      oppItem: oppIt && oppIt.used ? oppIt : null, // 상대 카드는 사용 전까지 비공개
+      pocket: this.pockets[i],
+      oppPocket: this.pockets[1 - i].length,
       pending: this.pending,
       legal: this.pending ? this.legalMoves(this.turn) : [],
       over: this.over,
       result: this.result
     };
   }
-  broadcast(_, evt) {
+  broadcast(evt) {
     for (const i of [0, 1]) {
       if (i === this.botIdx) continue;
       this.sendFn(i, Object.assign({ evt: evt || null }, this.stateFor(i)));
@@ -183,17 +286,12 @@ class Game {
   }
 
   // ---------- AI ----------
-  maybeBot() {
-    if (this.over || this.botIdx < 0 || this.turn !== this.botIdx || !this.pending) return;
-    setTimeout(() => this.botAct(), 900 + Math.random() * 700);
-  }
   evalPlace(idx, v, shield, boardSel, line) {
     const meB = this.boards[idx], opB = this.boards[1 - idx];
     if (boardSel === 'own') {
       if (!shield) {
         const hit = opB[line].filter(d => d.v === v && !d.shield);
         if (hit.length) {
-          // 알까기: 내 주사위는 배치되지 않으므로 상대 감점 + 실드 보너스 기대값만
           const after = opB[line].filter(d => !(d.v === v && !d.shield));
           const removedGain = scoreLine(opB[line]) - scoreLine(after);
           return removedGain * 1.1 + 4;
@@ -201,14 +299,11 @@ class Game {
       }
       return scoreLine([...meB[line], { v }]) - scoreLine(meB[line]);
     } else {
-      // 상대 보드에 실드 배치: 상대 점수 이득은 최소로, 슬롯 잠식 가치 반영
       const theirGain = scoreLine([...opB[line], { v }]) - scoreLine(opB[line]);
-      const slotValue = 4.5;
-      // 상대가 같은 눈 2개를 모아둔 줄 차단 보너스
       const counts = {};
       for (const d of opB[line]) counts[d.v] = (counts[d.v] || 0) + 1;
       const blockBonus = Object.values(counts).some(c => c >= 2) && opB[line].length === 2 ? 6 : 0;
-      return slotValue - theirGain + blockBonus;
+      return 4.5 - theirGain + blockBonus;
     }
   }
   bestMove(v, shield) {
@@ -220,30 +315,66 @@ class Game {
     }
     return { move: best, score: bestS };
   }
+  evalRollValue(v) {
+    // 시작 선택/포켓 비교용: 내 보드 기준 최고 배치 가치
+    let best = 0;
+    for (let l = 0; l < 3; l++) {
+      if (this.boards[this.botIdx][l].length >= 3) continue;
+      best = Math.max(best, this.evalPlace(this.botIdx, v, false, 'own', l));
+    }
+    return best;
+  }
+  maybeBot() {
+    if (this.over || this.botIdx < 0 || this.turn !== this.botIdx || !this.pending) return;
+    setTimeout(() => this.botAct(), 900 + Math.random() * 700);
+  }
   botAct() {
     if (this.over || this.turn !== this.botIdx || !this.pending) return;
     const p = this.pending;
-    if (p.offer) {
-      // 리롤 결과 선택
-      const oldS = this.bestMoveFor(p.offer.old, p.shield);
-      const newS = this.bestMoveFor(p.offer.nu, p.shield);
-      this.choose(this.botIdx, newS >= oldS ? 'new' : 'old');
+    const b = this.botIdx;
+    if (p.firstPick) {
+      let bi = 0, bs = -1;
+      p.choices.forEach((v, i) => { const s = v + Math.random(); if (s > bs) { bs = s; bi = i; } });
+      this.pickStart(b, bi);
       return;
+    }
+    // 아이템 사용 판단
+    const it = this.items[b];
+    if (it && !it.used && it.type === 'snipe') {
+      let best = null, bestGain = 0;
+      for (let l = 0; l < 3; l++) {
+        const line = this.boards[1 - b][l];
+        line.forEach((d, i) => {
+          const after = line.filter((_, j) => j !== i);
+          const gain = scoreLine(line) - scoreLine(after);
+          if (gain > bestGain) { bestGain = gain; best = { line: l, dieIdx: i }; }
+        });
+      }
+      if (best && bestGain >= 12) { this.useSnipe(b, best.line, best.dieIdx); return; }
+    }
+    if (it && !it.used && it.type === 'shuffle') {
+      const sc = this.scores();
+      const losing = [0,1,2].filter(l => sc[1-b][l] > sc[b][l]).length;
+      const myDice = this.boards[b].reduce((a, l) => a + l.length, 0);
+      if (losing >= 2 && myDice >= 6) { this.useShuffle(b); return; }
+    }
+    // 포켓 교체 판단
+    if (!p.shield && !p.bonus && !p.swapped && this.pockets[b].length) {
+      const cur = this.evalRollValue(p.v);
+      let bi = -1, bs = cur + 1.5;
+      this.pockets[b].forEach((v, i) => { const s = this.evalRollValue(v); if (s > bs) { bs = s; bi = i; } });
+      if (bi >= 0) { this.swap(b, bi); return; }
     }
     const { move, score } = this.bestMove(p.v, p.shield);
-    if (!move) return; // 발생하지 않아야 함
-    if (!p.bonus && this.rerolls[this.botIdx] > 0 && score < 4.5 && p.v <= 3) {
-      this.reroll(this.botIdx);
-      return;
-    }
-    this.place(this.botIdx, move.board, move.line);
+    if (!move) return;
+    if (!p.bonus && this.rerolls[b] > 0 && score < 4.5 && p.v <= 3) { this.reroll(b); return; }
+    this.place(b, move.board, move.line);
   }
-  bestMoveFor(v, shield) { return this.bestMove(v, shield).score; }
 }
 
 // ---------- 접속/매칭 관리 ----------
-let queue = [];               // 랜덤 매칭 대기열 (ws)
-const rooms = new Map();      // code -> ws(host)
+let queue = [];
+const rooms = new Map();
 const NAMES_MAX = 12;
 
 function send(ws, obj) {
@@ -265,6 +396,22 @@ function startGame(ws0, ws1, botIdx = -1) {
   const players = [ws0, ws1];
   const names = players.map((w, i) => (i === botIdx ? 'AI 도전자' : w.meta.name));
   const game = new Game((i, msg) => send(players[i], msg), names, botIdx);
+  game.hooks = {
+    onFinish(winner) {
+      const streaks = [0, 0];
+      players.forEach((w, i) => {
+        if (i === botIdx) {
+          if (winner === i) game.botStreak++; else if (winner === 1 - i) game.botStreak = 0;
+          streaks[i] = game.botStreak;
+        } else if (w && w.meta) {
+          if (winner === i) w.meta.streak = (w.meta.streak || 0) + 1;
+          else if (winner === 1 - i) w.meta.streak = 0;
+          streaks[i] = w.meta.streak || 0;
+        }
+      });
+      return streaks;
+    }
+  };
   players.forEach((w, i) => {
     if (!w) return;
     w.meta.game = game;
@@ -293,11 +440,12 @@ function leaveEverything(ws) {
 }
 
 wss.on('connection', ws => {
-  ws.meta = { name: '플레이어', game: null, idx: -1, players: null };
+  ws.meta = { name: '플레이어', game: null, idx: -1, players: null, streak: 0 };
   ws.on('message', raw => {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
     const g = ws.meta.game;
+    const reply = r => { if (r && r.err) send(ws, { type: 'error', msg: r.err }); };
     switch (m.type) {
       case 'set_name':
         ws.meta.name = cleanName(m.name);
@@ -338,24 +486,13 @@ wss.on('connection', ws => {
         startGame(ws, null, 1);
         break;
       }
-      case 'place': {
-        if (!g) break;
-        const r = g.place(ws.meta.idx, m.board, m.line);
-        if (r.err) send(ws, { type: 'error', msg: r.err });
-        break;
-      }
-      case 'reroll': {
-        if (!g) break;
-        const r = g.reroll(ws.meta.idx);
-        if (r.err) send(ws, { type: 'error', msg: r.err });
-        break;
-      }
-      case 'choose': {
-        if (!g) break;
-        const r = g.choose(ws.meta.idx, m.pick);
-        if (r.err) send(ws, { type: 'error', msg: r.err });
-        break;
-      }
+      case 'pick_item': if (g) reply(g.pickItem(ws.meta.idx, m.card)); break;
+      case 'pick_start': if (g) reply(g.pickStart(ws.meta.idx, m.idx)); break;
+      case 'swap': if (g) reply(g.swap(ws.meta.idx, m.idx)); break;
+      case 'snipe': if (g) reply(g.useSnipe(ws.meta.idx, m.line, m.dieIdx)); break;
+      case 'shuffle': if (g) reply(g.useShuffle(ws.meta.idx)); break;
+      case 'place': if (g) reply(g.place(ws.meta.idx, m.board, m.line)); break;
+      case 'reroll': if (g) reply(g.reroll(ws.meta.idx)); break;
       case 'rematch': {
         if (!g || !g.over || g.abandoned) break;
         g.rematchVotes[ws.meta.idx] = true;
