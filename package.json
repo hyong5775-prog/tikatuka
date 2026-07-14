@@ -1,0 +1,12 @@
+{
+  "name": "tikatuka-online",
+  "version": "1.0.0",
+  "description": "로스트아크 티카투카 팬메이드 온라인 대전",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "express": "^4.19.0",
+    "ws": "^8.18.0"
+  }
+}
