@@ -54,7 +54,6 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .roomcode { font-size: 42px; letter-spacing: 12px; color: var(--gold); font-weight: 800; margin: 12px 0; }
-  /* VS가 보드 정중앙에 오도록 좌우 균등 3열 그리드 */
   .topbar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-bottom: 10px; }
   .topbar > :first-child { justify-self: start; }
   .topbar > :last-child { justify-self: end; }
@@ -69,7 +68,6 @@
   .lscore { text-align: center; font-size: 18px; font-weight: 800; color: var(--muted); }
   .lscore.win { color: var(--ok); } .lscore.lose { color: var(--danger); }
   .mid { text-align: center; color: #3a4054; font-size: 12px; white-space: nowrap; }
-  /* 배치 순서: 첫 주사위가 가장 안쪽(중앙 쪽), 이후 주사위는 뒤쪽으로 */
   .slots {
     display: flex; gap: 6px; padding: 6px; border-radius: 10px; border: 1px dashed #2c3242;
     justify-content: flex-start; position: relative; box-sizing: border-box;
@@ -100,7 +98,6 @@
     display: flex; align-items: center; justify-content: center; font-size: 34px; line-height: 1;
     box-shadow: 0 2px 5px rgba(0,0,0,.5); position: relative; user-select: none; flex: none;
   }
-  /* 같은 눈 보너스 글로우: 더블 = 파랑(3배), 트리플 = 금색(5배) — 파편보다 항상 위 */
   .die.match2 { outline: 2px solid #59c7ff; box-shadow: 0 0 12px rgba(89,199,255,.8); z-index: 5; }
   .die.match3 { outline: 2px solid #ffd257; box-shadow: 0 0 16px rgba(255,210,87,.95); animation: matchPulse 1.1s ease-in-out infinite; z-index: 5; }
   @keyframes matchPulse { 50% { box-shadow: 0 0 26px rgba(255,210,87,1); } }
@@ -119,12 +116,18 @@
   }
   .chain-label.c2 { color: #59c7ff; text-shadow: 0 0 8px rgba(89,199,255,.85); }
   .chain-label.c3 { color: #ffd257; text-shadow: 0 0 8px rgba(255,210,87,.95); }
+  .chain-label.gold { color: var(--gold); text-shadow: 0 0 8px rgba(212,175,95,.9); }
   .die.shield { background: linear-gradient(145deg, #ffe9b0, #d4af5f); box-shadow: 0 0 10px rgba(212,175,95,.7); }
   .die.shield::after {
     content: '🛡'; position: absolute; bottom: -6px; right: -6px; font-size: 14px;
     filter: drop-shadow(0 1px 1px rgba(0,0,0,.6));
   }
   .die.ghost { opacity: .35; background: #b9b4a5; }
+  .die.mini { width: 26px; height: 26px; font-size: 19px; border-radius: 6px; }
+  .die.mini.back { background: #3a4054; color: #6a7086; font-size: 14px; box-shadow: none; }
+  .die.mini.swappable { outline: 1px dashed var(--gold); cursor: pointer; }
+  .die.mini.swappable:hover { outline: 2px solid var(--gold); }
+  .die.snipe-target { outline: 2px dashed var(--danger); cursor: crosshair; animation: pulse 1s ease-in-out infinite; }
   /* 양쪽 주사위 존 */
   .board-inner { display: flex; align-items: stretch; gap: 10px; }
   .board-inner .lines { flex: 1; }
@@ -144,9 +147,21 @@
   .bigdie { width: 58px; height: 58px; font-size: 42px; border-radius: 11px; }
   .tag { font-size: 11px; padding: 3px 8px; border-radius: 10px; background: rgba(212,175,95,.15); color: var(--gold); border: 1px solid var(--gold-dim); }
   .offer { display: flex; gap: 10px; align-items: center; }
+  .offer.vertical { flex-direction: column; }
   .offer .pick { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 6px 10px; border-radius: 10px; border: 1px solid #333a4d; transition: .15s; }
   .offer .pick:hover { border-color: var(--gold); background: rgba(212,175,95,.1); }
   .offer .pick span { font-size: 11px; color: var(--muted); }
+  .item-chip {
+    font-size: 11px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--gold-dim);
+    color: var(--gold); background: rgba(212,175,95,.08); white-space: nowrap;
+  }
+  .item-chip.used { opacity: .45; border-color: #333a4d; color: var(--muted); }
+  .item-chip.back { border-color: #333a4d; color: var(--muted); }
+  button.item-chip { cursor: pointer; font-weight: 600; }
+  button.item-chip:disabled { opacity: .45; cursor: default; }
+  button.item-chip.arm { border-color: var(--danger); color: var(--danger); background: rgba(239,83,80,.1); }
+  .pocket { display: flex; gap: 5px; align-items: center; }
+  .pocket span { font-size: 10px; color: var(--muted); }
   .log {
     margin-top: 12px; height: 96px; overflow-y: auto; background: #10131a; border: 1px solid #232838;
     border-radius: 10px; padding: 8px 12px; font-size: 12px; color: var(--muted); line-height: 1.7;
@@ -158,6 +173,18 @@
   .result-card h2 { font-size: 30px; margin-bottom: 8px; }
   .result-card h2.win { color: var(--gold); } .result-card h2.lose { color: var(--danger); } .result-card h2.draw { color: var(--muted); }
   .result-card .detail { color: var(--muted); font-size: 13px; margin-bottom: 20px; line-height: 1.8; }
+  .streak-line { color: var(--gold); font-size: 16px; font-weight: 800; margin-bottom: 10px; }
+  /* 아이템 카드 선택 */
+  .card-wrap { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin: 18px 0; }
+  .item-card {
+    width: 158px; padding: 18px 14px; border-radius: 14px; border: 1px solid #333a4d;
+    background: var(--panel2); text-align: center; cursor: pointer; transition: .15s;
+  }
+  .item-card:hover { border-color: var(--gold); background: rgba(212,175,95,.08); transform: translateY(-3px); }
+  .item-card.chosen { border-color: var(--gold); box-shadow: 0 0 14px rgba(212,175,95,.35); }
+  .item-card .ic { font-size: 36px; margin-bottom: 8px; }
+  .item-card h3 { font-size: 15px; color: var(--gold); margin-bottom: 6px; }
+  .item-card p { font-size: 11.5px; color: var(--muted); line-height: 1.55; }
   .toast {
     position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
     background: #2a1518; color: #ff9a96; border: 1px solid #5c2b2e; padding: 10px 22px;
@@ -165,7 +192,7 @@
   }
   @media (max-width: 700px) {
     .board-inner { flex-direction: column; align-items: stretch; }
-    .side { width: 100%; flex-direction: row; justify-content: center; }
+    .side { width: 100%; flex-direction: row; justify-content: center; flex-wrap: wrap; }
     #side-opp { order: 1; }
     .board-inner .lines { order: 2; }
     #side-me { order: 3; }
@@ -189,6 +216,8 @@
   .ad-bottom { width: 100%; max-width: 872px; margin: 10px auto 28px; padding: 0 14px; }
   .ad-bottom .ad-box { min-height: 90px; }
   @media (max-width: 1260px) { .ad-rail { display: none; } }
+  /* ▼ 광고 승인 전 임시 숨김 — 애드센스/애드핏 연동 시 아래 한 줄을 삭제하세요 ▼ */
+  .ad-rail, .ad-bottom { display: none !important; }
 </style>
 </head>
 <body>
@@ -217,9 +246,9 @@
       </div>
       <button class="btn secondary" id="btn-ai">🤖 AI 대전 (연습)</button>
       <div class="notice">
-        같은 눈 2개 = <span style="color:#59c7ff">더블 ×3(파란 글로우)</span> · 3개 = <span style="color:#ffd257">트리플 ×5(금색 글로우)</span><br>
-        3줄 중 2줄 승리 · 알까기 성공 시 알깐 주사위도 함께 소멸 + 실드 보너스!<br>
-        실드 주사위는 상대 보드에도 놓을 수 있고, 리롤권은 1회.
+        시작 전 <b style="color:var(--gold)">아이템 카드</b>(방어/저격/섞기) 하나를 선택 — 게임당 1회!<br>
+        첫 턴엔 주사위 3개 중 1개 선택, 나머지 2개는 <b style="color:var(--gold)">포켓</b>에 (턴당 1회 교체)<br>
+        더블 ×3 · 트리플 ×5 · 알까기 성공 시 알깐 주사위도 소멸 + 실드 보너스
       </div>
     </div>
   </div>
@@ -274,10 +303,21 @@
   </div>
 </div><!-- /page -->
 
+  <!-- 아이템 카드 선택 -->
+  <div class="overlay" id="card-ov">
+    <div class="result-card" style="max-width:560px">
+      <h2 style="color:var(--gold);font-size:22px">아이템 카드 선택</h2>
+      <div class="detail">게임 중 딱 한 번 쓸 수 있는 카드를 고르세요. 상대에겐 사용 전까지 비공개!</div>
+      <div class="card-wrap" id="card-wrap"></div>
+      <div class="detail" id="card-status"></div>
+    </div>
+  </div>
+
   <!-- 결과 -->
   <div class="overlay" id="overlay">
     <div class="result-card">
       <h2 id="res-title"></h2>
+      <div class="streak-line" id="res-streak" style="display:none"></div>
       <div class="detail" id="res-detail"></div>
       <button class="btn small" id="btn-rematch">다시 대결</button>
       <button class="btn small secondary" id="btn-lobby">로비로</button>
@@ -289,7 +329,12 @@
 <script>
 const $ = id => document.getElementById(id);
 const DIE = ['','⚀','⚁','⚂','⚃','⚄','⚅'];
-let ws, S = null, prevSc = null, myName = '';
+const ITEM_INFO = {
+  defense: { ic: '🛡', name: '방어', desc: '상대의 알까기·저격을 한 번 자동으로 무효화합니다.' },
+  snipe:   { ic: '🎯', name: '저격', desc: '상대 주사위 하나를 지정해 제거합니다. (실드 포함)' },
+  shuffle: { ic: '🔀', name: '섞기', desc: '내 3개 줄의 위치를 무작위로 재배치합니다.' }
+};
+let ws, S = null, prevSc = null, myName = '', sniping = false;
 
 // ---------- 효과음 (WebAudio 합성) ----------
 let AC = null, soundOn = localStorage.getItem('tikatuka-sound') !== 'off';
@@ -328,6 +373,7 @@ const sPlace  = () => tone(230, .09, 'triangle', .2, 0, 130);
 const sKnock  = () => { noiseBurst(.32, .4); tone(95, .28, 'sawtooth', .3, 0, 45); };
 const sChain  = () => { tone(660, .1, 'triangle', .2); tone(990, .16, 'triangle', .22, .09); };
 const sReroll = () => { tone(520, .05, 'square', .12); tone(680, .05, 'square', .12, .08); };
+const sDefend = () => { tone(392, .12, 'triangle', .25); tone(392, .18, 'triangle', .2, .1); };
 const sWin    = () => [523, 659, 784, 1047].forEach((f, i) => tone(f, .18, 'triangle', .22, i * .12));
 const sLose   = () => [330, 262, 196].forEach((f, i) => tone(f, .22, 'sawtooth', .14, i * .16));
 
@@ -343,12 +389,8 @@ $('btn-sound').onclick = () => {
 function connect(then) {
   if (ws && ws.readyState === 1) return then();
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  try {
-    ws = new WebSocket(proto + '://' + location.host);
-  } catch (e) {
-    toast('서버에 연결할 수 없습니다. 배포된 주소로 접속해주세요.');
-    return;
-  }
+  try { ws = new WebSocket(proto + '://' + location.host); }
+  catch (e) { toast('서버에 연결할 수 없습니다.'); return; }
   ws.onopen = then;
   ws.onmessage = e => handle(JSON.parse(e.data));
   ws.onclose = () => { toast('서버와 연결이 끊어졌습니다.'); showScreen('lobby'); };
@@ -357,7 +399,7 @@ const send = o => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
 
 function showScreen(name) {
   for (const s of ['lobby','wait','game']) $('scr-'+s).classList.toggle('active', s===name);
-  if (name !== 'game') $('overlay').classList.remove('active');
+  if (name !== 'game') { $('overlay').classList.remove('active'); $('card-ov').classList.remove('active'); }
 }
 let toastT;
 function toast(msg) {
@@ -367,7 +409,7 @@ function toast(msg) {
 function getName() {
   myName = $('nick').value.trim() || '플레이어';
   localStorage.setItem('tikatuka-nick', myName);
-  ac(); // 사용자 제스처로 오디오 잠금 해제
+  ac();
   return myName;
 }
 $('nick').value = localStorage.getItem('tikatuka-nick') || '';
@@ -398,15 +440,18 @@ function handle(m) {
     case 'queued': waitUI('상대를 찾는 중…'); break;
     case 'room_created': waitUI('친구에게 코드를 알려주세요!', m.code); break;
     case 'matched':
-      showScreen('game'); $('log').innerHTML = ''; prevSc = null;
+      showScreen('game'); $('log').innerHTML = ''; prevSc = null; sniping = false;
       $('btn-rematch').style.display = 'inline-block';
+      $('overlay').classList.remove('active');
       logMsg('<b>대전 시작!</b> ' + m.names[0] + ' vs ' + m.names[1]);
       break;
     case 'state': S = m; render(); break;
     case 'error': toast(m.msg); break;
     case 'opponent_left':
       toast('상대가 나갔습니다.');
+      $('card-ov').classList.remove('active');
       $('res-title').textContent = '상대 이탈'; $('res-title').className = '';
+      $('res-streak').style.display = 'none';
       $('res-detail').textContent = '상대가 게임을 떠났습니다.';
       $('btn-rematch').style.display = 'none';
       $('overlay').classList.add('active');
@@ -418,7 +463,7 @@ function handle(m) {
 function logMsg(html) {
   const l = $('log'); l.insertAdjacentHTML('beforeend', '<div>'+html+'</div>'); l.scrollTop = l.scrollHeight;
 }
-function dieHtml(d, cls='', style='') { return `<div class="die ${d.shield?'shield':''} ${cls}"${style?` style="${style}"`:''}>${DIE[d.v]}</div>`; }
+function dieHtml(d, cls='', style='', attrs='') { return `<div class="die ${d.shield?'shield':''} ${cls}"${style?` style="${style}"`:''}${attrs?' '+attrs:''}>${DIE[d.v]}</div>`; }
 
 // ---------- 이펙트 ----------
 function spawnGhost(slotEl, dieV, dx, dy, delayMs) {
@@ -431,6 +476,15 @@ function spawnGhost(slotEl, dieV, dx, dy, delayMs) {
   g.style.animationDelay = delayMs + 'ms';
   slotEl.appendChild(g);
   setTimeout(() => g.remove(), 900 + delayMs);
+}
+function lineLabel(absOwner, line, text, cls) {
+  const el = document.querySelector(`.slots[data-owner="${absOwner}"][data-line="${line}"]`);
+  if (!el) return;
+  const label = document.createElement('div');
+  label.className = cls || 'knock-label';
+  label.textContent = text;
+  el.appendChild(label);
+  setTimeout(() => label.remove(), 1000);
 }
 function knockEffect(victimEl, atkEl, dieV, removed, victimIsOpp) {
   if (victimEl) {
@@ -467,25 +521,76 @@ function chainEffect(absOwner, line, dieV) {
   sChain();
 }
 
+// ---------- 사이드 패널 조각 ----------
+function myItemHtml() {
+  if (!S.myItem) return '';
+  const inf = ITEM_INFO[S.myItem.type];
+  if (S.myItem.used) return `<div class="item-chip used">${inf.ic} ${inf.name} 사용됨</div>`;
+  if (S.myItem.type === 'defense') return `<div class="item-chip">${inf.ic} ${inf.name} · 자동 발동</div>`;
+  const usable = S.turn === S.me && S.pending && !S.pending.firstPick && !S.over;
+  const label = S.myItem.type === 'snipe' ? (sniping ? '저격 취소' : '저격 사용') : '섞기 사용';
+  return `<button class="item-chip ${sniping?'arm':''}" id="btn-item" ${usable?'':'disabled'}>${inf.ic} ${label}</button>`;
+}
+function oppItemHtml() {
+  if (S.oppItem) {
+    const inf = ITEM_INFO[S.oppItem.type];
+    return `<div class="item-chip used">${inf.ic} ${inf.name} 사용됨</div>`;
+  }
+  if (S.oppPicked) return `<div class="item-chip back">🂠 아이템 보유</div>`;
+  return '';
+}
+function pocketHtml(mine) {
+  if (mine) {
+    if (!S.pocket || !S.pocket.length) return '';
+    const canSwap = S.turn === S.me && S.pending && !S.pending.firstPick && !S.pending.shield
+      && !S.pending.bonus && !S.pending.swapped && !S.over;
+    return `<div class="pocket"><span>포켓</span>${S.pocket.map((v, i) =>
+      `<div class="die mini ${canSwap?'swappable':''}" data-pi="${i}" title="${canSwap?'클릭해서 교체 (턴당 1회)':''}">${DIE[v]}</div>`).join('')}</div>`;
+  }
+  if (!S.oppPocket) return '';
+  return `<div class="pocket"><span>포켓</span>${Array(S.oppPocket).fill('<div class="die mini back">?</div>').join('')}</div>`;
+}
+
 // ---------- 렌더 ----------
 function render() {
   if (!S) return;
   const me = S.me, op = 1 - me;
   const evt = S.evt;
+  if (!S.myItem || S.myItem.used || S.turn !== me || S.over) {
+    if (!(S.myItem && S.myItem.type === 'snipe' && !S.myItem.used && S.turn === me)) sniping = false;
+  }
+
+  // 아이템 카드 선택 오버레이
+  const cardPhase = S.phase === 'cards' && !S.over;
+  $('card-ov').classList.toggle('active', cardPhase);
+  if (cardPhase) {
+    $('card-wrap').innerHTML = Object.entries(ITEM_INFO).map(([k, v]) =>
+      `<div class="item-card ${S.myItem && S.myItem.type===k?'chosen':''}" data-card="${k}">
+        <div class="ic">${v.ic}</div><h3>${v.name}</h3><p>${v.desc}</p>
+      </div>`).join('');
+    $('card-status').textContent = S.myItem
+      ? (S.oppPicked ? '' : '상대가 카드를 고르는 중…')
+      : (S.oppPicked ? '상대는 선택을 마쳤습니다!' : '');
+    if (!S.myItem) {
+      document.querySelectorAll('.item-card').forEach(el => {
+        el.onclick = () => send({ type: 'pick_item', card: el.dataset.card });
+      });
+    }
+  }
+
   $('name-me').textContent = S.names[me] + ' (나)';
   $('name-opp').textContent = S.names[op];
-  $('name-me').classList.toggle('turn', S.turn === me && !S.over);
-  $('name-opp').classList.toggle('turn', S.turn === op && !S.over);
+  $('name-me').classList.toggle('turn', S.turn === me && !S.over && S.phase === 'play');
+  $('name-opp').classList.toggle('turn', S.turn === op && !S.over && S.phase === 'play');
 
-  const canPlace = S.turn === me && S.pending && !S.pending.offer && !S.over;
+  const canPlace = S.turn === me && S.pending && !S.pending.firstPick && !S.over;
   const legalOwn = new Set(), legalOpp = new Set();
   if (canPlace) for (const mv of S.legal) (mv.board==='own'?legalOwn:legalOpp).add(mv.line);
 
-  // 방금 놓인 주사위: 일반 배치는 팝, 그룹핑 이동은 슬라이드 (알까기는 배치 없음)
   const newInfo = evt && (evt.kind === 'placed' || (evt.kind === 'game_over' && evt.board !== undefined))
       ? { owner: evt.board, line: evt.line, idx: evt.insertAt, regrouped: evt.regrouped } : null;
 
-  const diceHtml = (o, l) => {
+  const diceHtmlFn = (o, l) => {
     const arr = S.boards[o][l];
     const counts = {};
     for (const d of arr) counts[d.v] = (counts[d.v] || 0) + 1;
@@ -497,140 +602,13 @@ function render() {
       if (newInfo && newInfo.owner === o && newInfo.line === l && i === newIdx) {
         if (newInfo.regrouped) {
           const delta = arr.length - 1 - i;
-          const dir = o === me ? -1 : 1; // 내 보드는 시각적으로 왼쪽이 끝자리
+          const dir = o === me ? -1 : 1;
           motion = 'slide';
           style = `--fromX: calc((var(--die) + 6px) * ${dir * delta})`;
         } else motion = 'pop';
       }
-      dice.push(dieHtml(d, `${match} ${motion}`, style));
+      dice.push(dieHtml(d, `${match} ${motion}`, style, `data-di="${i}"`));
       if (i < arr.length - 1 && arr[i + 1].v === d.v) {
         dice.push(`<div class="chain ${counts[d.v] >= 3 ? 'c3' : ''}">${DIE[d.v]}</div>`);
       }
-    });
-    for (let i = arr.length; i < 3; i++) dice.push('<div class="cell"></div>');
-    return dice.join('');
-  };
-
-  let html = '';
-  for (let l = 0; l < 3; l++) {
-    const sMe = S.scores[me][l], sOp = S.scores[op][l];
-    const lr = S.over && S.result ? S.result.lineResults[l] : null;
-    const clsMe = S.over ? (lr===me?'win':lr===op?'lose':'') : (sMe>sOp?'win':sMe<sOp?'lose':'');
-    const clsOp = S.over ? (lr===op?'win':lr===me?'lose':'') : (sOp>sMe?'win':sOp<sMe?'lose':'');
-    const bumpMe = prevSc && sMe > prevSc[me][l] ? 'bump' : '';
-    const bumpOp = prevSc && sOp > prevSc[op][l] ? 'bump' : '';
-    html += `<div class="line-row">
-      <div class="lscore ${clsMe} ${bumpMe}">${sMe}</div>
-      <div class="slots mine ${legalOwn.has(l)?'legal':''}" data-board="own" data-owner="${me}" data-line="${l}">
-        ${diceHtml(me, l)}
-      </div>
-      <div class="mid">${l+1}줄</div>
-      <div class="slots ${legalOpp.has(l)?'legal':''}" data-board="opp" data-owner="${op}" data-line="${l}">
-        ${diceHtml(op, l)}
-      </div>
-      <div class="lscore ${clsOp} ${bumpOp}">${sOp}</div>
-    </div>`;
-  }
-  $('lines').innerHTML = html;
-  prevSc = S.scores;
-  document.querySelectorAll('.slots.legal').forEach(el => {
-    el.onclick = () => send({type:'place', board: el.dataset.board, line: Number(el.dataset.line)});
-  });
-
-  // 양쪽 주사위 존: 왼쪽 = 나, 오른쪽 = 상대
-  const meS = $('side-me'), opS = $('side-opp');
-  meS.classList.toggle('active-turn', S.turn === me && !!S.pending && !S.over);
-  opS.classList.toggle('active-turn', S.turn === op && !!S.pending && !S.over);
-  const idle = '<div class="idle-dice">🎲</div><div class="hint">대기 중…</div>';
-  let meHtml = idle, opHtml = idle;
-  if (S.over) {
-    meHtml = opHtml = '<div class="idle-dice">🎲</div><div class="hint">게임 종료</div>';
-  } else if (S.pending && S.turn === op) {
-    if (S.pending.offer) {
-      opHtml = `
-        <div class="offer">
-          <div class="pick">${dieHtml({v:S.pending.offer.old, shield:S.pending.shield},'bigdie')}<span>기존</span></div>
-          <div class="pick">${dieHtml({v:S.pending.offer.nu, shield:S.pending.shield},'bigdie')}<span>새로</span></div>
-        </div>
-        <div class="hint"><b>${S.names[op]}</b> 리롤! 선택 중…</div>`;
-    } else {
-      opHtml = `
-        ${dieHtml({v:S.pending.v, shield:S.pending.shield}, 'bigdie')}
-        ${S.pending.bonus?'<span class="tag">알까기 보너스!</span>':''}
-        <div class="hint"><b>${S.names[op]}</b>가 굴렸습니다<br>고민하는 중…</div>`;
     }
-  } else if (S.pending && S.turn === me) {
-    const p = S.pending;
-    if (p.offer) {
-      meHtml = `
-        <div class="hint">리롤 결과!<br>하나를 선택하세요</div>
-        <div class="offer">
-          <div class="pick" id="pick-old">${dieHtml({v:p.offer.old, shield:p.shield},'bigdie')}<span>기존</span></div>
-          <div class="pick" id="pick-new">${dieHtml({v:p.offer.nu, shield:p.shield},'bigdie')}<span>새로</span></div>
-        </div>`;
-    } else {
-      const hint = p.shield
-        ? (p.ownOnly ? '시작 실드!<br>내 보드의 줄 선택' : '실드 주사위!<br><b>상대 보드</b>에도 배치 가능')
-        : '줄을 선택해 배치<br>같은 눈이면 알까기!';
-      meHtml = `
-        ${dieHtml({v:p.v, shield:p.shield}, 'bigdie')}
-        ${p.bonus?'<span class="tag">알까기 보너스 실드!</span>':''}
-        <div class="hint">${hint}</div>
-        ${(!p.bonus && S.rerolls[me]>0) ? '<button class="btn small secondary" id="btn-reroll">🎲 리롤 (1회)</button>' : ''}`;
-    }
-  }
-  meS.innerHTML = meHtml;
-  opS.innerHTML = opHtml;
-  if ($('btn-reroll')) $('btn-reroll').onclick = () => send({type:'reroll'});
-  if ($('pick-old')) $('pick-old').onclick = () => send({type:'choose', pick:'old'});
-  if ($('pick-new')) $('pick-new').onclick = () => send({type:'choose', pick:'new'});
-
-  // 이벤트 로그 + 이펙트
-  if (evt) {
-    const who = i => `<b>${S.names[i]}</b>`;
-    if (evt.kind === 'placed') {
-      logMsg(`${who(evt.by)} → ${evt.line+1}줄에 ${DIE[evt.dieV]} ${evt.shield?'(실드)':''} 배치`);
-      sPlace();
-      chainEffect(evt.board, evt.line, evt.dieV);
-    }
-    if (evt.kind === 'knock') {
-      logMsg(`💥 ${who(evt.by)} 알까기! ${evt.line+1}줄의 ${DIE[evt.dieV]} ${evt.removed}개 제거 (알깐 주사위도 소멸) → 실드 보너스`);
-      const victim = 1 - evt.by;
-      knockEffect(
-        document.querySelector(`.slots[data-owner="${victim}"][data-line="${evt.line}"]`),
-        document.querySelector(`.slots[data-owner="${evt.by}"][data-line="${evt.line}"]`),
-        evt.dieV, evt.removed, victim !== me
-      );
-      sKnock();
-    }
-    if (evt.kind === 'reroll') { logMsg(`${who(evt.by)} 리롤 사용`); sReroll(); }
-    if (evt.kind === 'game_over') {
-      logMsg('<b>게임 종료</b>');
-      sPlace();
-      if (evt.board !== undefined) chainEffect(evt.board, evt.line, evt.dieV);
-      showResult();
-    }
-    S.evt = null;
-  }
-}
-
-function showResult() {
-  const me = S.me, r = S.result, t = $('res-title');
-  if (r.winner === me) { t.textContent = '🏆 승리!'; t.className = 'win'; setTimeout(sWin, 400); }
-  else if (r.winner === -1) { t.textContent = '무승부'; t.className = 'draw'; }
-  else { t.textContent = '패배…'; t.className = 'lose'; setTimeout(sLose, 400); }
-  $('res-detail').innerHTML =
-    `줄 승리: 나 ${r.wins[me]} : ${r.wins[1-me]} 상대<br>총점: 나 ${r.totals[me]} : ${r.totals[1-me]} 상대`;
-  setTimeout(() => $('overlay').classList.add('active'), 600);
-}
-
-// ---------- 구글 애드센스 광고 로드 ----------
-// 승인된 도메인에 배포된 경우에만 광고가 채워집니다.
-window.addEventListener('load', () => {
-  document.querySelectorAll('ins.adsbygoogle').forEach(() => {
-    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
-  });
-});
-</script>
-</body>
-</html>
