@@ -551,7 +551,6 @@ function pocketHtml(mine) {
   return `<div class="pocket"><span>포켓</span>${Array(S.oppPocket).fill('<div class="die mini back">?</div>').join('')}</div>`;
 }
 
-// ---------- 렌더 ----------
 function render() {
   if (!S) return;
   const me = S.me, op = 1 - me;
@@ -559,8 +558,6 @@ function render() {
   if (!S.myItem || S.myItem.used || S.turn !== me || S.over) {
     if (!(S.myItem && S.myItem.type === 'snipe' && !S.myItem.used && S.turn === me)) sniping = false;
   }
-
-  // 아이템 카드 선택 오버레이
   const cardPhase = S.phase === 'cards' && !S.over;
   $('card-ov').classList.toggle('active', cardPhase);
   if (cardPhase) {
@@ -577,19 +574,15 @@ function render() {
       });
     }
   }
-
   $('name-me').textContent = S.names[me] + ' (나)';
   $('name-opp').textContent = S.names[op];
   $('name-me').classList.toggle('turn', S.turn === me && !S.over && S.phase === 'play');
   $('name-opp').classList.toggle('turn', S.turn === op && !S.over && S.phase === 'play');
-
   const canPlace = S.turn === me && S.pending && !S.pending.firstPick && !S.over;
   const legalOwn = new Set(), legalOpp = new Set();
   if (canPlace) for (const mv of S.legal) (mv.board==='own'?legalOwn:legalOpp).add(mv.line);
-
   const newInfo = evt && (evt.kind === 'placed' || (evt.kind === 'game_over' && evt.board !== undefined))
       ? { owner: evt.board, line: evt.line, idx: evt.insertAt, regrouped: evt.regrouped } : null;
-
   const diceHtmlFn = (o, l) => {
     const arr = S.boards[o][l];
     const counts = {};
@@ -611,4 +604,160 @@ function render() {
       if (i < arr.length - 1 && arr[i + 1].v === d.v) {
         dice.push(`<div class="chain ${counts[d.v] >= 3 ? 'c3' : ''}">${DIE[d.v]}</div>`);
       }
+    });
+    for (let i = arr.length; i < 3; i++) dice.push('<div class="cell"></div>');
+    return dice.join('');
+  };
+  let html = '';
+  for (let l = 0; l < 3; l++) {
+    const sMe = S.scores[me][l], sOp = S.scores[op][l];
+    const lr = S.over && S.result ? S.result.lineResults[l] : null;
+    const clsMe = S.over ? (lr===me?'win':lr===op?'lose':'') : (sMe>sOp?'win':sMe<sOp?'lose':'');
+    const clsOp = S.over ? (lr===op?'win':lr===me?'lose':'') : (sOp>sMe?'win':sOp<sMe?'lose':'');
+    const bumpMe = prevSc && sMe > prevSc[me][l] ? 'bump' : '';
+    const bumpOp = prevSc && sOp > prevSc[op][l] ? 'bump' : '';
+    html += `<div class="line-row">
+      <div class="lscore ${clsMe} ${bumpMe}">${sMe}</div>
+      <div class="slots mine ${legalOwn.has(l)?'legal':''}" data-board="own" data-owner="${me}" data-line="${l}">
+        ${diceHtmlFn(me, l)}
+      </div>
+      <div class="mid">${l+1}줄</div>
+      <div class="slots ${legalOpp.has(l)?'legal':''}" data-board="opp" data-owner="${op}" data-line="${l}">
+        ${diceHtmlFn(op, l)}
+      </div>
+      <div class="lscore ${clsOp} ${bumpOp}">${sOp}</div>
+    </div>`;
+  }
+  $('lines').innerHTML = html;
+  prevSc = S.scores;
+  if (!sniping) {
+    document.querySelectorAll('.slots.legal').forEach(el => {
+      el.onclick = () => send({type:'place', board: el.dataset.board, line: Number(el.dataset.line)});
+    });
+  }
+  if (sniping) {
+    document.querySelectorAll(`.slots[data-owner="${op}"] .die[data-di]`).forEach(el => {
+      el.classList.add('snipe-target');
+      el.onclick = (e) => {
+        e.stopPropagation();
+        sniping = false;
+        send({ type: 'snipe', line: Number(el.closest('.slots').dataset.line), dieIdx: Number(el.dataset.di) });
+      };
+    });
+  }
+  const meS = $('side-me'), opS = $('side-opp');
+  meS.classList.toggle('active-turn', S.turn === me && !!S.pending && !S.over);
+  opS.classList.toggle('active-turn', S.turn === op && !!S.pending && !S.over);
+  const idle = '<div class="idle-dice">🎲</div><div class="hint">대기 중…</div>';
+  let meCore = idle, opCore = idle;
+  if (S.over) {
+    meCore = opCore = '<div class="idle-dice">🎲</div><div class="hint">게임 종료</div>';
+  } else if (S.pending && S.pending.firstPick) {
+    const picks = S.pending.choices.map((v, i) =>
+      `<div class="pick ${S.turn === me ? 'pickable' : ''}" data-ci="${i}">${dieHtml({v}, 'bigdie')}</div>`).join('');
+    const box = `<div class="hint">시작 주사위 선택!<br>남은 2개는 포켓으로</div><div class="offer">${picks}</div>`;
+    if (S.turn === me) meCore = box;
+    else opCore = `<div class="hint"><b>${S.names[op]}</b> 시작 주사위 선택 중…</div><div class="offer">${picks}</div>`;
+  } else if (S.pending && S.turn === op) {
+    opCore = `
+      ${dieHtml({v:S.pending.v, shield:S.pending.shield}, 'bigdie')}
+      ${S.pending.bonus?'<span class="tag">알까기 보너스!</span>':''}
+      <div class="hint"><b>${S.names[op]}</b>가 굴렸습니다<br>고민하는 중…</div>`;
+  } else if (S.pending && S.turn === me) {
+    const p = S.pending;
+    const hint = p.shield
+      ? (p.ownOnly ? '시작 실드!<br>내 보드의 줄 선택' : '실드 주사위!<br><b>상대 보드</b>에도 배치 가능')
+      : (sniping ? '<b style="color:var(--danger)">저격 대상</b>을 클릭하세요!' : '줄을 선택해 배치<br>같은 눈이면 알까기!');
+    meCore = `
+      ${dieHtml({v:p.v, shield:p.shield}, 'bigdie')}
+      ${p.bonus?'<span class="tag">알까기 보너스 실드!</span>':''}
+      <div class="hint">${hint}</div>
+      ${(!p.bonus && !p.shield && S.rerolls[me]>0) ? '<button class="btn small secondary" id="btn-reroll">🎲 리롤 (1회)</button>' : ''}`;
+  }
+  meS.innerHTML = myItemHtml() + meCore + pocketHtml(true);
+  opS.innerHTML = oppItemHtml() + opCore + pocketHtml(false);
+  if ($('btn-reroll')) $('btn-reroll').onclick = () => send({type:'reroll'});
+  if ($('btn-item')) $('btn-item').onclick = () => {
+    if (!S.myItem || S.myItem.used) return;
+    if (S.myItem.type === 'snipe') { sniping = !sniping; S.evt = null; render(); }
+    else if (S.myItem.type === 'shuffle') send({ type: 'shuffle' });
+  };
+  document.querySelectorAll('#side-me .pick.pickable').forEach(el => {
+    el.onclick = () => send({ type: 'pick_start', idx: Number(el.dataset.ci) });
+  });
+  document.querySelectorAll('#side-me .die.mini.swappable').forEach(el => {
+    el.onclick = () => send({ type: 'swap', idx: Number(el.dataset.pi) });
+  });
+  if (evt) {
+    const who = i => `<b>${S.names[i]}</b>`;
+    if (evt.kind === 'cards_done') logMsg(`아이템 선택 완료! 선공: <b>${S.names[S.turn]}</b>`);
+    if (evt.kind === 'startpick') { logMsg(`${who(evt.by)} 시작 주사위 선택 완료 (2개는 포켓으로)`); sPlace(); }
+    if (evt.kind === 'swap') { logMsg(`${who(evt.by)} 포켓 주사위와 교체`); sReroll(); }
+    if (evt.kind === 'placed') {
+      logMsg(`${who(evt.by)} → ${evt.line+1}줄에 ${DIE[evt.dieV]} ${evt.shield?'(실드)':''} 배치${evt.defended?' — <b>🛡 방어 발동!</b> 알까기 무효':''}`);
+      sPlace();
+      if (evt.defended) { lineLabel(1 - evt.by, evt.line, '🛡 방어!', 'chain-label gold'); sDefend(); }
+      chainEffect(evt.board, evt.line, evt.dieV);
     }
+    if (evt.kind === 'knock') {
+      logMsg(`💥 ${who(evt.by)} 알까기! ${evt.line+1}줄의 ${DIE[evt.dieV]} ${evt.removed}개 제거 (알깐 주사위도 소멸) → 실드 보너스`);
+      const victim = 1 - evt.by;
+      knockEffect(
+        document.querySelector(`.slots[data-owner="${victim}"][data-line="${evt.line}"]`),
+        document.querySelector(`.slots[data-owner="${evt.by}"][data-line="${evt.line}"]`),
+        evt.dieV, evt.removed, victim !== me
+      );
+      sKnock();
+    }
+    if (evt.kind === 'snipe') {
+      logMsg(`🎯 ${who(evt.by)} 저격! ${evt.line+1}줄의 ${DIE[evt.dieV]} 제거`);
+      const victim = 1 - evt.by;
+      const el = document.querySelector(`.slots[data-owner="${victim}"][data-line="${evt.line}"]`);
+      if (el) {
+        el.classList.add('knocked');
+        setTimeout(() => el.classList.remove('knocked'), 550);
+        spawnGhost(el, evt.dieV, (victim !== me ? 1 : -1) * (60 + Math.random() * 50), -30 + Math.random() * 60, 0);
+        lineLabel(victim, evt.line, '🎯 저격!', 'knock-label');
+      }
+      sKnock();
+    }
+    if (evt.kind === 'snipe_blocked') {
+      logMsg(`🎯 ${who(evt.by)} 저격 시도 → <b>🛡 방어 발동!</b> 무효화`);
+      lineLabel(1 - evt.by, evt.line, '🛡 방어!', 'chain-label gold');
+      sDefend();
+    }
+    if (evt.kind === 'shuffle') {
+      logMsg(`🔀 ${who(evt.by)} 섞기! 줄 위치가 재배치됐습니다`);
+      lineLabel(evt.by, 1, '🔀 섞기!', 'chain-label c2');
+      sReroll();
+    }
+    if (evt.kind === 'reroll') { logMsg(`${who(evt.by)} 리롤 사용`); sReroll(); }
+    if (evt.kind === 'game_over') {
+      logMsg('<b>게임 종료</b>');
+      sPlace();
+      if (evt.board !== undefined) chainEffect(evt.board, evt.line, evt.dieV);
+      showResult();
+    }
+    S.evt = null;
+  }
+}
+function showResult() {
+  const me = S.me, r = S.result, t = $('res-title');
+  if (r.winner === me) { t.textContent = '🏆 승리!'; t.className = 'win'; setTimeout(sWin, 400); }
+  else if (r.winner === -1) { t.textContent = '무승부'; t.className = 'draw'; }
+  else { t.textContent = '패배…'; t.className = 'lose'; setTimeout(sLose, 400); }
+  const st = r.streaks ? r.streaks[me] : 0;
+  if (st >= 2) { $('res-streak').textContent = `🔥 ${st}연승!`; $('res-streak').style.display = 'block'; }
+  else { $('res-streak').style.display = 'none'; }
+  $('res-detail').innerHTML =
+    `줄 승리: 나 ${r.wins[me]} : ${r.wins[1-me]} 상대<br>총점: 나 ${r.totals[me]} : ${r.totals[1-me]} 상대`;
+  setTimeout(() => $('overlay').classList.add('active'), 600);
+}
+window.addEventListener('load', () => {
+  document.querySelectorAll('ins.adsbygoogle').forEach(() => {
+    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+  });
+});
+</script>
+</body>
+</html>
